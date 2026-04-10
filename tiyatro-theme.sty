@@ -1,0 +1,346 @@
+% =============================================================
+% tiyatro-theme.sty
+% Tiyatro LaTeX Sistemi — Görsel Format ve Tema
+%
+% Bu dosya "tiyatro" paketinin görünümünü belirler.
+% Mantık (persona sistemi, sahne takibi vs.) bu dosyada YOK —
+% o işler tiyatro-core.sty içinde yapılır.
+%
+% İçerik:
+%   1. Gerekli paketler
+%   2. Sayfa düzeni
+%   3. Draft / Final mod ayarları
+%   4. Font komutları
+%   5. Uzunluk ve boşluk ayarları
+%   6. Lokalizasyon metinleri
+%   7. Çok dilli destek
+%   8. Custom font sistemi
+%   9. Kapak sayfası
+% =============================================================
+
+\RequirePackage{fontspec}       % XeLaTeX font yönetimi — sistem fontları ve .ttf/.otf
+\RequirePackage{setspace}       % Satır aralığı kontrolü
+\RequirePackage{lineno}         % Satır numaraları (draft modda)
+\RequirePackage{geometry}       % Sayfa kenar boşlukları
+% NOT: babel kullanmıyoruz — Türkçe babel = karakterini aktif yapıp
+% fontspec ile çakışıyor. XeLaTeX + fontspec UTF-8 ve Türkçeyi
+% babel olmadan da destekler.
+
+
+% =============================================================
+% BÖLÜM 1: SAYFA DÜZENİ
+% =============================================================
+
+\geometry{
+	a4paper,
+	top=2.5cm,
+	bottom=2.5cm,
+	left=3cm,
+	right=3cm
+}
+
+% Paragraf girintisi yok — tiyatro formatı için standart
+\parindent 0pt
+
+
+% =============================================================
+% BÖLÜM 2: DRAFT / FINAL MOD AYARLARI
+% =============================================================
+%
+% Draft mod (\documentclass[draft]{tiyatro}):
+%   - Aptos yazı tipi (göze rahat, ekran okuma için)
+%   - 1.5 satır aralığı
+%   - Sayfa solunda satır numaraları
+%   - Kapakta "TASLAK" ibaresi
+%
+% Final mod (\documentclass[final]{tiyatro}):
+%   - Times New Roman (baskı için klasik)
+%   - Tek satır aralığı
+%   - Satır numarası yok
+%   - Temiz kapak
+%
+% \iftiyatrodraft flag'i tiyatro.cls tarafından set edilir.
+%
+% =============================================================
+
+\iftiyatrodraft
+
+% ── DRAFT MOD ────────────────────────────────────────────
+
+\AtBeginDocument{%
+  \IfFontExistsTF{Aptos}{\setmainfont{Aptos}}{%
+    \IfFontExistsTF{Calibri}{\setmainfont{Calibri}}{%
+      \IfFontExistsTF{TeX Gyre Heros}{\setmainfont{TeX Gyre Heros}}{}}}%
+}
+
+% 1.5 satır aralığı
+\onehalfspacing
+
+% Satır numaraları — her satırda, sayfa solunda
+\AtBeginDocument{\linenumbers}
+\setlength\linenumbersep{8pt}
+\renewcommand\linenumberfont{\normalfont\tiny\ttfamily}
+
+% Satir numarasi karakter isimlerinin solunda kalsin
+% maxcharlength preamble sonunda belli olur, linenumbersep ona gore ayarlanir
+\AtBeginDocument{\setlength\linenumbersep{\dimexpr\maxcharlength+8pt\relax}}
+
+% Satır numarasını geçici kapatmak için yardımcı komutlar
+\newcommand{\@pauselinenumbers}{\nolinenumbers}
+\newcommand{\@resumelinenumbers}{\linenumbers}
+
+\else
+
+% ── FINAL MOD ────────────────────────────────────────────
+
+\AtBeginDocument{%
+  \IfFontExistsTF{Times New Roman}{\setmainfont{Times New Roman}}{%
+    \IfFontExistsTF{TeX Gyre Termes}{\setmainfont{TeX Gyre Termes}}{}}%
+}
+
+% Tek satır aralığı
+\singlespacing
+
+% Satır numarası yok
+\AtBeginDocument{\nolinenumbers}
+
+% Final modda bu komutlar boş
+\newcommand{\@pauselinenumbers}{}
+\newcommand{\@resumelinenumbers}{}
+
+\fi
+
+
+% =============================================================
+% BÖLÜM 3: FONT KOMUTLARI
+% =============================================================
+%
+% tiyatro-core.sty'deki \providecommand değerlerini override eder.
+% Farklı bir tema yazmak istersen sadece bu bölümü değiştir.
+%
+% =============================================================
+
+% Karakter adı fontu — diyalog başında, small caps
+\renewcommand{\namefont}{\addfontfeature{Language=Turkish}\scshape}
+
+% Starred karakter adı fontu — kalın small caps
+\renewcommand{\starfont}{\addfontfeature{Language=Turkish}\bfseries\scshape}
+
+% Action / stage direction fontu — italik
+\renewcommand{\actionfont}{\itshape}
+
+% Kisiler tablosunda normal karakter adı
+\renewcommand{\castfont}{\addfontfeature{Language=Turkish}\scshape}
+
+% Kisiler tablosunda starred karakter adı — biraz büyük
+\renewcommand{\caststarfont}{\addfontfeature{Language=Turkish}\bfseries\scshape\large}
+
+% "KİŞİLER" başlığı
+\renewcommand{\casttitlefont}{\addfontfeature{Language=Turkish}\scshape\Large}
+
+% Sahne cast listesi — küçük, sahne başında
+\renewcommand{\scenecastfont}{\addfontfeature{Language=Turkish}\scshape\small}
+
+% Sahne başlığı — "Sahne 3"
+\renewcommand{\scenetitlefont}{\addfontfeature{Language=Turkish}\scshape\large}
+
+% Perde başlığı — "Perde I"
+\renewcommand{\acttitlefont}{\addfontfeature{Language=Turkish}\scshape\Large}
+
+
+% =============================================================
+% BÖLÜM 4: UZUNLUK VE BOŞLUK AYARLARI
+% =============================================================
+
+% Bu uzunluklar tiyatro-core.sty'de tanımlanmıştır.
+% Burada sadece değerlerini override ediyoruz.
+\setlength{\beforesceneskip}{0pt}
+\setlength{\aftersceneskip}{\baselineskip}
+\setlength{\beforeactskip}{\baselineskip}
+\setlength{\afteractskip}{\baselineskip}
+
+
+% =============================================================
+% BÖLÜM 5: LOKALİZASYON METİNLERİ
+% =============================================================
+%
+% Varsayılan Türkçe.
+% Override için: \renewcommand{\scenetitlename}{Scene}
+%
+% =============================================================
+
+\renewcommand{\casttitlename}{KİŞİLER}
+\renewcommand{\scenetitlename}{Sahne}
+\renewcommand{\acttitlename}{Perde}
+\renewcommand{\curtainlocalizedtext}{Perde Sonu}
+\renewcommand{\scriptendlocalizedtext}{Son}
+
+% Kapakta draft ibaresi
+\newcommand{\draftlocalizedtext}{TASLAK}
+
+
+% =============================================================
+% BÖLÜM 6: ÇOK DİLLİ DESTEK
+% =============================================================
+%
+% babel yok — sadece fontspec ile font switch yapıyoruz.
+% XeLaTeX UTF-8'i natively destekler, heceleme kuralları
+% olmadan da metin düzgün basılır.
+%
+% Hazır komutlar:
+%   \ru{Rusça metin}      — Kiril (font: TeX Gyre Termes)
+%   \en{English text}     — İngilizce (mevcut font)
+%   \de{Deutscher Text}   — Almanca (mevcut font)
+%   \fr{Texte français}   — Fransızca (mevcut font)
+%   \el{Ελληνικό κείμενο} — Yunanca (font: Linux Libertine)
+%
+% Yeni dil/font eklemek için:
+%   \yenidil{jp}{Noto Serif CJK JP}
+%   Sonra: \jp{日本語テキスト}
+%
+% =============================================================
+
+% Rusca — font fallback zinciri
+\newcommand{\ru}[1]{{\@rufont #1}}
+\AtBeginDocument{%
+  \let\@rufont\relax
+  \IfFontExistsTF{Times New Roman}%
+    {\newfontfamily\@rufont{Times New Roman}}%
+    {\IfFontExistsTF{DejaVu Serif}%
+      {\newfontfamily\@rufont{DejaVu Serif}}%
+      {\let\@rufont\rmfamily}}%
+}
+
+% İngilizce — mevcut font yeterli
+\newcommand{\en}[1]{#1}
+
+% Almanca — mevcut font yeterli
+\newcommand{\de}[1]{#1}
+
+% Fransızca — mevcut font yeterli
+\newcommand{\fr}[1]{#1}
+
+% Yunanca — mevcut font yeterli (Latin Extended fontlar Yunanca destekler)
+\newcommand{\el}[1]{#1}
+
+% ── Kullanıcı tanımlı dil/font ekleme ────────────────────────
+%
+% \yenidil{komut}{font-adı}
+%
+% Örnek:
+%   \yenidil{jp}{Noto Serif CJK JP}
+%   → \jp{日本語テキスト}
+%
+% #1 = komut adı (ASCII)
+% #2 = font adı
+%
+\newcommand{\yenidil}[2]{%
+	\expandafter\newfontfamily\csname @dil@#1@font\endcsname{#2}%
+	\expandafter\newcommand\csname #1\endcsname[1]{%
+		{\@nameuse{@dil@#1@font}##1}%
+	}%
+}
+
+
+% =============================================================
+% BÖLÜM 7: CUSTOM FONT SİSTEMİ
+% =============================================================
+%
+% Netten indirilen veya sistemde kurulu herhangi bir fontu
+% istediğin yerde kullanmak için.
+%
+% Kullanım:
+%   \fontyukle{taslak}{OzelFont.ttf}    ← dosya adı (proje klasöründe)
+%   \fontyukle{baslik}{Cinzel-Regular}  ← sistem font adı
+%
+% Sonra:
+%   \taslak{TASLAKTIR}     veya     {\taslak TASLAKTIR}
+%
+% Örnek — kapakta özel font:
+%   \fontyukle{kapakfont}{Bebas Neue}
+%   \kapakfont{\@title}
+%
+% #1 = komut adı (ASCII)
+% #2 = font adı veya dosya adı
+%
+\newcommand{\fontyukle}[2]{%
+	% fontspec ile yükle
+	\expandafter\newfontfamily\csname @customfont@#1\endcsname{#2}%
+	% \taslak{metin} komutunu oluştur
+	\expandafter\newcommand\csname #1\endcsname[1]{%
+		{\@nameuse{@customfont@#1}##1}%
+	}%
+}
+
+
+% =============================================================
+% BÖLÜM 8: KAPAK SAYFASI (\maketitle)
+% =============================================================
+%
+% main.tex içinde kullanım:
+%   \title{Oyun Adı}
+%   \author{Yazar Adı}
+%   \draft{1.0.0}           ← opsiyonel, draft modda gösterilir
+%   \copyrightnotice{...}   ← opsiyonel
+%   \address{...}           ← opsiyonel
+%   \telephone{...}         ← opsiyonel
+%   \email{...}             ← opsiyonel
+%
+%   \maketitle
+%
+% Draft modda kapak ortasında büyük "TASLAK #1.0.0" görünür.
+% Eğer \fontyukle{taslakfont}{...} tanımlandıysa o font kullanılır,
+% yoksa varsayılan kalın font kullanılır.
+%
+% =============================================================
+
+% Kapak bilgisi komutları
+\newcommand{\draft}[1]{\gdef\@draftno{#1}}
+\newcommand{\copyrightnotice}[1]{\gdef\@crightnotice{#1}}
+\newcommand{\address}[1]{\gdef\@address{#1}}
+\newcommand{\telephone}[1]{\gdef\@telephone{#1}}
+\newcommand{\email}[1]{\gdef\@email{#1}}
+
+% Kapak sayfası
+\renewcommand{\maketitle}{%
+	\iftiyatrodraft\@pauselinenumbers\fi%
+	\begin{titlepage}%
+		%
+		\vspace*{\fill}%
+		%
+		% Oyun başlığı — ortalanmış, smallcaps, Türkçe
+		{\centering\Huge\addfontfeature{Language=Turkish}\scshape\@title\par}%
+		\vspace{0.5cm}%
+		%
+		% Yazar
+		{\centering\Large\@author\par}%
+		%
+		% Draft modda: TASLAK küçük başlık altında göster
+		\iftiyatrodraft%
+			\vspace{0.5cm}%
+			{\centering\small\draftlocalizedtext%
+			\ifdefined\@draftno{\space\@draftno}\fi\par}%
+		\fi%
+		%
+		% Starred karakter isimleri — sadece FINAL modda gösterilir
+		\iftiyatrodraft\else%
+			\vfill%
+			\def\@tiy@temp{\@starrednamelist}%
+			\ifx\@tiy@temp\empty\else%
+				{\centering\Large\bfseries\def\\{\par}\@starrednamelist\par}%
+			\fi%
+		\fi%
+		%
+		\vfill%
+		%
+		% Alt bilgi — sağ alt
+		\begin{flushright}%
+			\small%
+			\ifdefined\@crightnotice{\copyright\space\@crightnotice\par}\fi%
+			\ifdefined\@address{\@address\par}\fi%
+			\ifdefined\@telephone{\@telephone\par}\fi%
+			\ifdefined\@email{\@email\par}\fi%
+		\end{flushright}%
+	\end{titlepage}%
+	\iftiyatrodraft\@resumelinenumbers\fi%
+}

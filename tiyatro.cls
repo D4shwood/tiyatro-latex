@@ -1,0 +1,11 @@
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesClass{tiyatro}[2024]
+\newif\iftiyatrodraft
+\DeclareOption{draft}{\tiyatrodrafttrue}
+\DeclareOption{final}{\tiyatrodraftfalse}
+\DeclareOption*{\PassOptionsToClass{\CurrentOption}{book}}
+\ExecuteOptions{draft}
+\ProcessOptions\relax
+\LoadClass[12pt,a4paper,oneside]{book}
+\RequirePackage{tiyatro-core}
+\RequirePackage{tiyatro-theme}

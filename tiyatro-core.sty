@@ -1,0 +1,1033 @@
+% =============================================================
+% tiyatro-core.sty
+% Tiyatro LaTeX Sistemi — Çekirdek Mantık
+%
+% Bu dosya "tiyatro" paketinin beynini oluşturur.
+% Görsel format (font, renk, layout) bu dosyada YOK —
+% o işler tiyatro-theme.sty içinde yapılır.
+%
+% İçerik:
+%   1. Gerekli paketler
+%   2. Flagler (boolean değişkenler)
+%   3. Persona Sistemi — karakter tanımlama ve takip
+%   4. Diyalog Formatı — formatdialogue, formataction, \ic{}
+%   5. Sahne Sistemi — sahne sayacı ve cast takibi
+%   6. Perde (Act) Sistemi
+%   7. Kişiler Tablosu (Dramatis Personae)
+%   8. Yardımcı komutlar
+% =============================================================
+
+\RequirePackage{xparse}      % Gelişmiş komut tanımlama (NewDocumentCommand)
+\RequirePackage{etoolbox}    % \gappto, \csdef, \ifcsundef gibi araçlar
+\RequirePackage{xspace}      % Makro sonrası otomatik boşluk yönetimi
+\RequirePackage{ifthen}      % \whiledo gibi döngü komutları
+
+
+% =============================================================
+% BÖLÜM 1: FLAGLER
+% Boolean değişkenler — sistem içi durum takibi için
+% =============================================================
+
+% Diyalog formatı başladı mı?
+% \alias veya \aliasdo satır içinde çağrılınca bu flag true olur.
+% Flag true iken \alias sadece isim basar, yeni diyalog başlatmaz.
+% Bu sayede: \ali{\ma buraya gel!} → "Ali: Fatma buraya gel!" çalışır.
+\newif\if@hasbeenformatted
+\@hasbeenformattedfalse
+
+% Sahne cast listesinde en az bir karakter var mı?
+% Virgül koymak için kontrol edilir: "Ali, Veli" (başa virgül gelmez)
+\newif\if@atleastonecharbefore
+\@atleastonecharbeforefalse
+
+% Bu karakter starred mı?
+% Starred karakter kisiler tablosunda öne çıkar, kapak sayfasında gösterilir.
+\newif\if@thischarstar
+\@thischarstarfalse
+
+% \aliasdo zincirleme modunda mı?
+% \mado\suedo\roddo Girerler. yazılınca birden fazla isim biriktirilir.
+\newif\if@actionaccumulating
+\@actionaccumulatingfalse
+
+% Grup karakter tanımlanıyor mu?
+% \gkarakter içinde true olur — \maxcharlength güncellenmez
+% çünkü grup karakterler sadece kişiler tablosunda görünür, diyalogda kullanılmaz
+\newif\if@tiy@groupchar
+\@tiy@groupcharfalse
+
+
+% =============================================================
+% BÖLÜM 2: UZUNLUK DEĞİŞKENLERİ
+% Diyalog girintisi için kullanılır
+% =============================================================
+
+% Şimdiye kadar tanımlanan en uzun karakter adının genişliği.
+% Diyalog formatında isim sütununun genişliğini belirler.
+% Her \karakter tanımında otomatik güncellenir.
+\newlength{\maxcharlength}
+\setlength{\maxcharlength}{0pt}
+
+% Geçici uzunluk — her karakter tanımında hesaplama için
+\newlength{\@thischarlength}
+
+% İsim sütununun maksimum genişliği (cap).
+% Bu değeri aşan uzun isimler wrap eder, diyalog sütunu kaymaz.
+% Kullanıcı \setmaxnamewidth{} ile override edebilir.
+\newlength{\@maxnamelengthcap}
+\setlength{\@maxnamelengthcap}{0.22\textwidth}
+
+% Kullanıcı arayüzü: isim sütunu cap'ini değiştir
+% Kullanım: \setmaxnamewidth{0.3\textwidth}
+\newcommand{\setmaxnamewidth}[1]{%
+    \setlength{\@maxnamelengthcap}{#1}%
+}
+
+
+% =============================================================
+% BÖLÜM 3: PERSONA SİSTEMİ
+% =============================================================
+%
+% Persona sistemi karakterleri tanımlar, takip eder ve yönetir.
+%
+% Sözdizimi:
+%   \karakter[Tam Ad][Açıklama]{Script Adı}{alias}
+%   \karakter*[Tam Ad][Açıklama]{Script Adı}{alias}  ← starred
+%
+% Starred karakter: kisiler tablosunda öne çıkar, kapak sayfasında gösterilir.
+%
+% Türetilen komutlar (alias = "ma" ise):
+%   \ma        → diyalog başlatır
+%   \mado      → stage direction (ayrı satır, zincirleme destekler)
+%   \mafont    → bu karakterin font komutu
+%
+% Diyalog içinde alias (Persona özelliği):
+%   \ali{\ma buraya gel!}  →  "Ali: Fatma buraya gel!"
+%   \ma diyalog içinde çağrılınca sadece isim basar, yeni diyalog başlatmaz.
+%   İsim sonradan değiştirilirse (\karakter{ma}{Fatma}) her yer otomatik güncellenir.
+%
+% =============================================================
+
+% Karakter sayacı — her tanımlanan karaktere benzersiz bir Roma rakamı ID'si verilir.
+% Bu ID, karakterin tüm iç verilerini (font, isim, cast flag) anahtarlamak için kullanılır.
+\newcounter{totalcharcounter}
+
+% Kisiler tablosu sayacı — açıklamalı tanımlanan karakterleri sayar
+\newcounter{castlistcounter}
+
+% Starred karakter isimleri — kapakta gösterilir
+\newcommand{\@starrednamelist}{}
+
+% Geçici sayaç — kisiler tablosunu recursive basmak için
+\newcounter{casttemp}
+
+% Geçici sayaç — sahne cast listesini taramak için
+\newcounter{charstemp}
+
+% ── \karakter ana komutu ──────────────────────────────────────
+% Starred versiyon için s argümanı (xparse özelliği: \karakter* gibi)
+\NewDocumentCommand{\karakter}{s}{%
+    % Starred mı kontrol et
+    \IfBooleanTF{#1}%
+        {\@thischarstartrue}%    starred: kapakta göster
+        {\@thischarstarfalse}%   normal
+    % Sonraki token [ ise açıklama/tam ad var demektir
+    \@ifnextchar[%
+        {\@persona@cast}%        açıklamalı tanımlama
+        {\@persona@simple}%      sadece {Script Adı}{alias}
+}
+
+% Açıklamalı tanımlama: ilk [ açıldı, tam ad mı açıklama mı kontrol et
+\def\@persona@cast[#1]{%
+    \@ifnextchar[%
+        {\@persona@castfull{#1}}%       iki köşeli parantez: [Tam Ad][Açıklama]
+        {\@persona@castfull{}[#1]}%     bir köşeli parantez: [Açıklama] (Tam Ad boş)
+}
+
+% Tam tanımlama — kisiler tablosuna eklenir
+% #1 = Tam Ad (boş olabilir — boşsa script adı kullanılır)
+% #2 = Açıklama (kisiler tablosunda sağ sütunda görünür)
+% #3 = Script Adı (PDF'te diyalog başında görünür, ör: MARİA)
+% #4 = alias (ASCII, komut adı olarak kullanılır, ör: ma)
+\def\@persona@castfull#1[#2]#3#4{%
+    \stepcounter{castlistcounter}%
+    \stepcounter{totalcharcounter}%
+    %
+    % Kisiler tablosunda gösterilecek ismi kaydet
+    % Tam ad boşsa script adını, doluysa tam adı kullan
+    \if\relax\detokenize{#1}\relax%
+        % Tam ad boş — script adını kullan
+        \if@thischarstar%
+            \csgdef{persona@\Roman{castlistcounter}}{\caststarfont#3}%
+        \else%
+            \csgdef{persona@\Roman{castlistcounter}}{\castfont#3}%
+        \fi%
+    \else%
+        % Tam ad dolu — tam adı kullan
+        \if@thischarstar%
+            \csgdef{persona@\Roman{castlistcounter}}{\caststarfont#1}%
+        \else%
+            \csgdef{persona@\Roman{castlistcounter}}{\castfont#1}%
+        \fi%
+    \fi%
+    %
+    % Açıklamayı kaydet
+    \csgdef{description@\Roman{castlistcounter}}{#2}%
+    %
+    % Starred ise kapak listesine ekle
+    \if@thischarstar%
+        \if\relax\detokenize{#1}\relax%
+            % tam ad yok — script adi
+            \ifx\@starrednamelist\empty
+                \gappto\@starrednamelist{#3}%
+            \else
+                \gappto\@starrednamelist{\\#3}%
+            \fi
+        \else%
+            % tam ad var
+            \ifx\@starrednamelist\empty
+                \gappto\@starrednamelist{#1}%
+            \else
+                \gappto\@starrednamelist{\\#1}%
+            \fi
+        \fi%
+    \fi%
+    %
+    % Karakter ID'sini genişlet ve makroları oluştur
+    \edef\@currentcharid{\Roman{totalcharcounter}}%
+    \expandafter\@persona@makemacros\expandafter{\@currentcharid}{#3}{#4}%
+}
+
+% Açıklamasız tanımlama — kisiler tablosuna EKLENMEz
+% Sadece diyalog makroları oluşturulur.
+% Sahne içinde geçici karakter tanımlamak için kullanışlı.
+% #1 = Script Adı
+% #2 = alias
+\def\@persona@simple#1#2{%
+    \stepcounter{totalcharcounter}%
+    \edef\@currentcharid{\Roman{totalcharcounter}}%
+    \expandafter\@persona@makemacros\expandafter{\@currentcharid}{#1}{#2}%
+}
+
+% ── Inline İsim Sistemi ──────────────────────────────────────
+% Diyalog içinde karakter referansı için.
+% Varsayılan: script adının sentence case hali (ALİ → Ali)
+% Override: \setinlinename{ali}{Ali Bey}
+%
+% Auto titlecase — ilk harf büyük, kalan küçük
+% AYŞE → Ayşe, ALİ → Ali, MUSTAFA → Mustafa
+% XeLaTeX'te UTF-8 karakterler tek token, #1 ilk harfi doğru yakalar
+\newcommand{\@tiy@titlecase}[1]{%
+    \@tiy@tcaux#1\@tiy@tcend
+}
+\def\@tiy@tcaux#1#2\@tiy@tcend{%
+    #1\MakeLowercase{#2}%
+}
+
+% Kullanıcı komutu — inline ismi override et
+% Kullanım: \setinlinename{ali}{Ali Bey}
+\newcommand{\setinlinename}[2]{%
+    \csgdef{@inline@#1}{#2}%
+}
+
+% Karakter makrolarını oluştur
+% Bu komut her karakter tanımında çağrılır.
+% #1 = karakter ID (Roma rakamı, ör: III)
+% #2 = Script Adı (ör: MARİA)
+% #3 = alias (ör: ma)
+\def\@persona@makemacros#1#2#3{%
+    %
+    % Font komutunu kaydet
+    % starred → \starfont, normal → \namefont
+    \if@thischarstar%
+        \csgdef{@char#1font}{\starfont}%
+    \else%
+        \csgdef{@char#1font}{\namefont}%
+    \fi%
+    %
+    % İsim+font kombinasyonunu kaydet
+    % \@charIIIname → {\namefont MARİA}
+    % Sahne cast listesinde ve diyalog içi referanslarda kullanılır
+    \csgdef{@char#1name}{{\@nameuse{@char#1font}#2}}%
+    %
+    % \mafont komutunu oluştur
+    % Kullanıcı metinde {\mafont ÖZEL MARİA} diyebilir
+    \csgdef{#3font}{\@nameuse{@char#1font}}%
+    %
+    % \maxcharlength güncelle — sadece normal karakterler için
+    % Grup karakterler (\gkarakter) diyalogda kullanılmaz, güncelleme atlanır
+    \if@tiy@groupchar\else%
+        \settowidth{\@thischarlength}{{\@nameuse{@char#1font}#2\space}}%
+        \ifdim\@thischarlength>\@maxnamelengthcap%
+            \global\setlength{\maxcharlength}{\@maxnamelengthcap}%
+        \else\ifdim\@thischarlength>\maxcharlength%
+            \global\setlength{\maxcharlength}{\@thischarlength}%
+        \fi\fi%
+    \fi%
+    %
+    % ── ANA DİYALOG KOMUTU: \ma ──────────────────────────────
+    % Dışarıda çağrılırsa: yeni diyalog satırı başlatır
+    % Diyalog içinde çağrılırsa: sadece ismi basar (Persona özelliği)
+    %
+    % Örnek kullanım:
+    %   \ma Merhaba!          → "Maria: Merhaba!" (diyalog formatı)
+    %   \ali{\ma nerede?}     → "Ali: Maria nerede?" (sadece isim)
+    %
+    \csgdef{#3}{%
+        \if@hasbeenformatted%
+            % Diyalog içindeyiz — inline isim bas (normal font, sentence case)
+            \ifcsname @inline@#3\endcsname
+                \@nameuse{@inline@#3}%
+            \else
+                \@tiy@titlecase{#2}%
+            \fi
+        \else%
+            % Diyalog dışındayız — yeni diyalog formatı başlat
+            % Cast flag'ini set et (bu karakter bu sahnede konuştu)
+            \@tiyatro@markcharinscene{#1}%
+            \@firstofone{%
+                \begingroup%
+                \catcode`\^^M=\active%
+                \catcode`\(=\active\relax%
+                \catcode`\)=\active\relax%
+                \catcode`\_=\active\relax%
+                \formatdialogue{{\@nameuse{@char#1font}#2}}%
+            }%
+        \fi%
+        \xspace%
+    }%
+    %
+    % ── ACTION KOMUTU: \mado ─────────────────────────────────
+    % Zincirleme destekler: \mado\suedo\roddo Girerler.
+    %
+    \csgdef{#3do}{%
+        \@tiy@doaction{#1}{#2}{#3}%
+    }%
+}
+
+
+% =============================================================
+% BÖLÜM 4: ACTION ACCUMULATOR (Zincirleme \aliasdo)
+% =============================================================
+
+% \fi'den sonra komut calistirmak icin yardimci
+\long\def\@tiy@afterfi#1\fi{\fi#1}
+
+% \aliasdo icin wrapper — if-fi sorunu olmadan
+% #1 = karakter ID, #2 = script adi
+\newcommand{\@tiy@doaction}[3]{%
+    \@tiyatro@markcharinscene{#1}%
+    % Inline ismi resolve et — \fi'den ÖNCE
+    % Sonra \@action@addname'i \fi'den SONRA çağır
+    % (futurelet + \fi çakışmasını önlemek için)
+    \ifcsname @inline@#3\endcsname
+        \expandafter\let\expandafter\@tiy@resolvedname\csname @inline@#3\endcsname
+    \else
+        \def\@tiy@resolvedname{\@tiy@titlecase{#2}}%
+    \fi
+    \expandafter\@action@addname\expandafter{\@tiy@resolvedname}%
+}
+%
+% \mado\suedo\roddo Girerler. yazılınca:
+%   1. \mado → "ALİ" biriktirir, sonraki token'ı kontrol eder
+%   2. Sonraki token \suedo → zincir devam, "AYŞE" eklenir
+%   3. Sonraki token \roddo → zincir devam, "MUSTAFA" eklenir
+%   4. Sonraki token metin → formataction başlatılır, ^^M'e kadar okur
+%   5. Çıktı: "(Ali, Ayşe, Mustafa Girerler.)"
+%
+% =============================================================
+
+% Biriken isimler listesi
+\newcommand{\@actionaccumulatorlist}{}
+
+% Kayıtlı \aliasdo komutları listesi — zincir kontrolü için
+\newcommand{\@tiy@docommands}{}
+
+% Karakter tanımlanınca \aliasdo komutunu listeye ekle
+% (bu @persona@makemacros'dan sonra çağrılır, yani alias'ın do komutu tanınır)
+% Bunu ayrı yapacağız — her karakter için do komutunu kaydediyoruz
+
+% İsmi listeye ekle ve sonraki token'ı kontrol et
+\newcommand{\@action@addname}[1]{%
+    \if@actionaccumulating%
+        \gappto{\@actionaccumulatorlist}{, #1}%
+    \else%
+        \global\@actionaccumulatingtrue%
+        \gdef\@actionaccumulatorlist{#1}%
+    \fi%
+    % Sonraki token'ı kontrol et: başka bir do komutu mu yoksa metin mi?
+    \futurelet\@tiy@nexttoken\@action@peekdecide%
+}
+
+% Karar: sonraki token komut mu?
+\newcommand{\@action@peekdecide}{%
+    \ifcat\noexpand\@tiy@nexttoken\relax%
+        % Sonraki token bir komut — zincir devam ediyor
+        \let\@tiy@peekresult\relax%
+    \else%
+        % Metin geldi — formataction'i baslat
+        \let\@tiy@peekresult\@action@fire%
+    \fi%
+    \@tiy@peekresult%
+}
+
+% Biriken isimlerle formataction'ı başlat
+\newcommand{\@action@fire}{%
+    \global\@actionaccumulatingfalse%
+    \begingroup%
+    \catcode`\^^M=\active\relax%
+    \expandafter\formataction\expandafter{\@actionaccumulatorlist}%
+    \gdef\@actionaccumulatorlist{}%
+}
+
+
+% =============================================================
+% BÖLÜM 5: DİYALOG FORMATI
+% =============================================================
+%
+% formatdialogue: diyalog satırını formatlar
+%   Sol sütun: karakter adı (minipage, cap'li, wrap'li)
+%   Sağ sütun: diyalog metni
+%   \maxcharlength ile otomatik hizalanır
+%
+% formataction: stage direction satırını formatlar
+%   Girintili, italik, parantez içinde
+%   İsim varsa: "(Maria: Girer.)"
+%   İsim yoksa: "(Girer.)"  ← \action{} komutu için
+%
+% \ic{}: diyalog içi inline eylem
+%   \ali{\ic{güler} Hayır olmaz!}  →  Ali: (güler) Hayır olmaz!
+%
+% =============================================================
+
+% =============================================================
+% DİYALOG FORMATI
+% =============================================================
+%
+% formatdialogue: theatre.cls'den alınan ^^M mekanizması
+%   - #1 = karakter adı (font komutuyla)
+%   - #2 = diyalog metni (^^M ile yakalanır, enter'a kadar)
+%   - Sol sütun: karakter adı, \maxcharlength genişliğinde minipage
+%   - Sağ sütun: diyalog metni, hizalı
+%
+% formataction: zincirleme \aliasdo için
+%   - #1 = isim listesi ("Maria" veya "Maria, Sue, Rod")
+%   - #2 = action metni (^^M ile yakalanır)
+%   - Format: (isim eylem.) — italik, girintili
+%
+% \action{}: isimsiz sahne yönü — {argüman} sözdizimi
+%
+% \ic{}: diyalog içi inline eylem — italik parantez
+%
+% _kelime_: alt çizgi vurgu
+%
+% =============================================================
+
+% ── formatdialogue ───────────────────────────────────────────
+% theatre.cls'deki gibi ^^M ile satır sonu yakalanır.
+% Kullanıcı \ali yazıp enter'a basınca diyalog metni toplanır.
+% \endgroup ile \begingroup kapanır (karakter makrosunda açılmıştı).
+\begingroup
+\catcode`\^^M=\active
+\long\gdef\formatdialogue#1#2^^M{%
+    \@hasbeenformattedtrue%
+    %
+    % Girinti ayarı: isim sütunu kadar sol girinti
+    \parindent-\maxcharlength%
+    \leftskip\maxcharlength%
+    %
+    % İsim sütunu: sabit genişlikte minipage
+    % Uzun isimler burada wrap eder, diyalog sütunu kaymaz
+    \begin{minipage}[l]{\maxcharlength}%
+        \raggedright%
+        #1%
+    \end{minipage}%
+    %
+    % Diyalog metni
+    #2%
+    %
+    % \begingroup'u kapat (karakter makrosunda açılmıştı)
+    \endgroup%
+    \par%
+    \@hasbeenformattedfalse%
+}
+\endgroup
+
+% ── formataction ─────────────────────────────────────────────
+% Zincirleme \aliasdo için — \@action@flush tarafından çağrılır.
+% #1 = isim listesi (boş olabilir — isimsiz action için)
+% #2 = action metni (^^M ile yakalanır)
+%
+% Hizalama: \leftskip\maxcharlength + \parindent 0pt ile \par iç grupta
+% çağrılır — diyalog metniyle aynı kolon hizası, çok satırda da doğru.
+\begingroup
+\catcode`\^^M=\active
+\long\gdef\formataction#1#2^^M{%
+    \@hasbeenformattedtrue%
+    \vskip 0.5ex%
+    {%
+    \leftskip 0pt%
+    \parindent 0pt%
+    \actionfont%
+    \if\relax\detokenize{#1}\relax%
+        (#2)%
+    \else%
+        (#1\space #2)%
+    \fi%
+    \par}%
+    \vskip 0.5ex%
+    \endgroup%
+    \@hasbeenformattedfalse%
+}
+\endgroup
+
+% ── \action{} — isimsiz sahne yönü ──────────────────────────
+% Karakter bağımsız, {argüman} sözdizimi ile kullanılır.
+% \action{Işıklar söner.}  →  (Işıklar söner.)
+\newcommand{\action}[1]{%
+    \par%
+    \vskip 0.5ex%
+    {\leftskip 0pt\parindent 0pt%
+    \actionfont(#1)\par}%
+    \vskip 0.5ex%
+}
+
+% ── \stagedir{} — büyük sahne yönü ──────────────────────────
+% Blok halinde, ortalanmış — sahne başı/sonu açıklamaları için
+% \stagedir{Engure Balıkçı Çiftliği, Latviya}
+\newcommand{\stagedir}[1]{%
+    \par%
+    \vskip 1.5ex%
+    \begin{center}%
+        \stagedirfont #1%
+    \end{center}%
+    \vskip 1.5ex%
+}
+
+% ── \middir{} — sağa yaslanmış yön ──────────────────────────
+% Sahne ortasında kısa notlar için
+% \middir{İngilizce kısımları başka biri seslendirir.}
+\newcommand{\middir}[1]{%
+    \par%
+    \vskip 1.5ex%
+    \begin{flushright}%
+        \itshape #1%
+    \end{flushright}%
+    \vskip 1.5ex%
+}
+
+% ── \ic{} — diyalog içi inline eylem ────────────────────────
+% \ali{\ic{güler} Hayır olmaz!}  →  Ali: (güler) Hayır olmaz!
+\newcommand{\ic}[1]{{\itshape(#1)}}
+
+% ── Alt çizgi vurgu ──────────────────────────────────────────
+% _kelime_ → \underline{kelime}
+% Diyalog içinde: \ali{Bu çok _önemli_!}
+\def\@setupemph{\catcode`\_=\active\relax}
+\def\@cleanupemph{\catcode`\_=12\relax}
+\@setupemph
+\gdef_#1_{\underline{#1}}
+\@cleanupemph
+
+% ── \stagedirfont varsayılan ─────────────────────────────────
+% tiyatro-theme.sty override edebilir
+\providecommand{\stagedirfont}{\normalfont}
+
+
+% =============================================================
+% BÖLÜM 6: SAHNE SİSTEMİ
+% =============================================================
+%
+% \sahne[İsim] veya \scene[İsim]
+%   - Sahne sayacını artırır
+% - Sahne başlığını basar (isim varsa "Sahne 3 -- Leningradsky Blues")
+%   - O sahnede konuşan karakterleri listeler (cast tracking)
+%   - İçindekiler tablosuna ekler
+%
+% Cast Tracking — tek pass, label hack YOK:
+%   Her karakter ilk konuştuğunda \@tiyatro@markcharinscene çağrılır.
+%   Bu komut karakterin ID'sine göre bir \csdef flag'i set eder.
+%   Sahne başlığı basılırken tüm flagler taranır, set edilenler listelenir.
+%   Yeni sahne açılınca tüm flagler \@tiyatro@resetcastflags ile temizlenir.
+%
+%   ÖNEMLİ: Cast listesi sahne başında gösterilir ama bir önceki sahnenin
+%   bilgilerini içerir (o sahnede kim konuştu). Bu yüzden ilk sahne boş gelir.
+%   Alternatif için: iki pass veya \AtEndDocument flush.
+%
+% =============================================================
+
+% Sahne adı ayırıcı — "Sahne 3 -- Leningradsky Blues"
+\newcommand{\sceneseparator}{\space--\space}
+
+% ── İki-pass cast sistemi ────────────────────────────────────
+% Sahne cast listesi .aux dosyasina yazilir, sonraki derlemede okunur.
+% Ilk derleme: cast listeleri bos gelir. Ikinci derleme: dogru gosterilir.
+
+% Aux dosyasindan okunan cast verisini kaydet
+\newcommand{\@tiyatro@savedcast}[2]{\csgdef{tiyatro@saved@#1}{#2}}
+
+% Onceki sahnenin cast verisini aux dosyasina yaz
+\newcommand{\@tiyatro@flushcasttoaux}{%
+    \begingroup
+    \def\@tiy@ids{}%
+    \setcounter{charstemp}{0}%
+    \def\@tiy@first{1}%
+    \whiledo{\value{charstemp}<\value{totalcharcounter}}{%
+        \stepcounter{charstemp}%
+        \ifcsundef{scenechar@\Roman{charstemp}}{}{%
+            \ifnum\@tiy@first=1\relax
+                \edef\@tiy@ids{\arabic{charstemp}}%
+                \def\@tiy@first{0}%
+            \else
+                \edef\@tiy@ids{\@tiy@ids,\arabic{charstemp}}%
+            \fi
+        }%
+    }%
+    \ifx\@tiy@ids\empty\else
+        \immediate\write\@auxout{%
+            \string\@tiyatro@savedcast{\@tiy@currentlabel}{\@tiy@ids}%
+        }%
+    \fi
+    \endgroup
+}
+
+% Mevcut sahne etiketi
+\newcommand{\@tiy@currentlabel}{}
+
+% Saved cast ID listesinden isim listesi olustur
+\newcommand{\@tiyatro@showsavedcast}[1]{%
+    \ifcsname tiyatro@saved@#1\endcsname
+        \expandafter\@tiy@renderids\expandafter{\csname tiyatro@saved@#1\endcsname}%
+    \fi
+}
+
+% Virgullu ID listesini isimlere cevir
+\newcommand{\@tiy@renderids}[1]{%
+    \def\@tiy@first{1}%
+    \@for\@tiy@onecharid:=#1\do{%
+        \ifnum\@tiy@first=1\relax \def\@tiy@first{0}%
+        \else ,\space
+        \fi
+        \@tiy@namebyarabic{\@tiy@onecharid}%
+    }%
+}
+
+% Arabic sayidan karakter adini bul
+\newcommand{\@tiy@namebyarabic}[1]{%
+    \setcounter{charstemp}{#1}%
+    {\@nameuse{@char\Roman{charstemp}name}}%
+}
+
+% Kullanıcı komutları — Türkçe ve İngilizce alias
+\NewDocumentCommand{\sahne}{O{}}{%
+    % Onceki sahnenin cast verisini aux'a yaz
+    \@tiyatro@flushcasttoaux
+    \stepcounter{scenecounter}%
+    % Yeni sahne etiketi
+    \edef\@tiy@currentlabel{\theact-\thescene}%
+    \vskip 1.0\baselineskip%
+    \@tiyatro@scene{#1}%
+    \parskip 0.5\baselineskip%
+}
+\let\scene\sahne
+
+% İç sahne komutu
+\newcommand{\@tiyatro@scene}[1]{%
+    % İçindekiler tablosuna ekle
+    \if\relax\detokenize{#1}\relax%
+        \addcontentsline{toc}{section}{\scenetitlename\space\thescene}%
+    \else%
+        \addcontentsline{toc}{section}{\scenetitlename\space\thescene\sceneseparator#1}%
+    \fi%
+    % Sahne başlığını bas (bir önceki sahnenin cast bilgisiyle)
+    \@tiyatro@titlescene{#1}%
+    % Cast flaglerini sıfırla (yeni sahne için temiz başlangıç)
+    \@tiyatro@resetcastflags%
+    % Cast listesini sıfırla
+    \gdef\currentscenecast{}%
+    \@atleastonecharbeforefalse%
+}
+
+% Sahne başlığını bas
+\newcommand{\@tiyatro@titlescene}[1]{%
+    \vspace*{\beforesceneskip}%
+    {%
+        \centering%
+        {\scenetitlefont\scenetitlename\space\thescene%
+        \if\relax\detokenize{#1}\relax\else\sceneseparator#1\fi}%
+        \par\nobreak%
+        % Cast listesini aux'tan oku (iki-pass)
+        {\scenecastfont\@tiyatro@showsavedcast{\theact-\thescene}}%
+        \par\nobreak\vskip\aftersceneskip%
+    }%
+}
+
+% Sahne cast listesini bas
+% Tüm karakter ID'lerini tara, flag'i set edilmişleri listele
+\newcommand{\@tiyatro@scenecastlist}{%
+    \setcounter{charstemp}{0}%
+    \@atleastonecharbeforefalse%
+    \whiledo{\value{charstemp}<\value{totalcharcounter}}{%
+        \stepcounter{charstemp}%
+        % Bu karakter sahnede konuştu mu?
+        \ifcsundef{scenechar@\Roman{charstemp}}%
+            {}% Konuşmadı — atla
+            {% Konuştu — listele
+                \if@atleastonecharbefore{,\space}\fi%
+                {\@nameuse{@char\Roman{charstemp}name}}%
+                \@atleastonecharbeforetrue%
+            }%
+    }%
+}
+
+% Karakter sahnede ilk konuştuğunda çağrılır — cast flag'ini set eder
+% \@tiyatro@scenecastlist bu flag'leri okuyarak cast listesini oluşturur
+% #1 = karakter ID (Roma rakamı, ör: III)
+\newcommand{\@tiyatro@markcharinscene}[1]{%
+    \ifcsundef{scenechar@#1}%
+        {\csgdef{scenechar@#1}{1}}% İlk kez konuşuyor — flag set et
+        {}% Zaten işaretli — bir şey yapma (duplicate yok)
+}
+
+% Sahne bitince tüm cast flaglerini temizle
+% Bir sonraki sahne temiz başlasın
+\newcommand{\@tiyatro@resetcastflags}{%
+    \setcounter{charstemp}{0}%
+    \whiledo{\value{charstemp}<\value{totalcharcounter}}{%
+        \stepcounter{charstemp}%
+        \ifcsundef{scenechar@\Roman{charstemp}}%
+            {}%
+            {\csundef{scenechar@\Roman{charstemp}}}%
+    }%
+}
+
+
+% =============================================================
+% BÖLÜM 7: PERDE (ACT) SİSTEMİ
+% =============================================================
+%
+% \perde[İsim] veya \act[İsim]
+%   - Perde sayacını artırır
+%   - Önceki perde varsa otomatik "PERDE SONU" basar
+%   - Yeni sayfaya geçer
+%   - Perde başlığını basar
+%   - İçindekiler tablosuna ekler
+%
+% Oyun sonu \AtEndDocument ile otomatik basılır.
+%
+% =============================================================
+
+% Perde sayacı
+\newcounter{actcounter}
+
+% Sahne sayacı — her yeni perdede sıfırlanır
+\newcounter{scenecounter}[actcounter]
+
+% Perde adı ayırıcı — "Perde I: Leningradsky Blues"
+\newcommand{\actseparator}{:\space}
+
+% Kullanıcı komutları
+\NewDocumentCommand{\perde}{O{}}{%
+    \@tiyatro@flushcasttoaux
+    \@tiyatro@openact%
+    \@tiyatro@act{#1}%
+}
+\let\act\perde
+
+% Perde açılışı: önceki perdenin kapanışını bas, yeni sayfaya geç
+\newcommand{\@tiyatro@openact}{%
+    \ifnum\value{actcounter}>0%
+        % Önceki perde vardı — kapanış metni bas
+        % \nopagebreak ile metni önceki içeriğe yapıştır
+        \par\nopagebreak%
+        \vskip 1.6ex plus 0.5ex minus 1ex\relax%
+        \nopagebreak%
+        {\centering\textsc{\curtainlocalizedtext}\par}%
+    \fi%
+    \clearpage%
+}
+
+% Perde içeriği
+% #1 = perde ismi (ör: "Leningradsky Blues")
+\newcommand{\@tiyatro@act}[1]{%
+    \refstepcounter{actcounter}%
+    % İçindekiler tablosuna ekle
+    \if\relax\detokenize{#1}\relax%
+        \addcontentsline{toc}{chapter}{\acttitlename\space\theact}%
+    \else%
+        \addcontentsline{toc}{chapter}{\acttitlename\space\theact\actseparator#1}%
+    \fi%
+    % Başlığı bas
+    \@tiyatro@titleact{#1}%
+}
+
+% Perde başlığını bas
+\newcommand{\@tiyatro@titleact}[1]{%
+    \vspace*{\beforeactskip}%
+    {%
+        \parindent 0pt%
+        \parskip 0.25\baselineskip%
+        \centering\acttitlefont\acttitlename\space\theact%
+        \if\relax\detokenize{#1}\relax\else%
+            \actseparator\par\nobreak#1%
+        \fi%
+        \par\nobreak\vskip\afteractskip%
+    }%
+}
+
+% Perde ve sahne numarası için display komutları
+\newcommand{\theact}{\Roman{actcounter}}
+\newcommand{\thescene}{\arabic{scenecounter}}
+
+% Oyun sonu — döküman bitince otomatik basılır
+\AtEndDocument{%
+    % Son sahnenin cast verisini aux'a yaz
+    \@tiyatro@flushcasttoaux
+    \par\nopagebreak%
+    \vskip 1.6ex plus 0.5ex minus 1ex\relax%
+    \nopagebreak%
+    {\centering\textsc{\curtainlocalizedtext}\par}%
+    \nopagebreak%
+    \vskip 1.6ex plus 0.5ex minus 1ex\relax%
+    \nopagebreak%
+    {\centering\textsc{\scriptendlocalizedtext}}%
+}
+
+
+% =============================================================
+% BÖLÜM 8: KİŞİLER TABLOSU (DRAMATIS PERSONAE)
+% =============================================================
+%
+% \kisiler — açıklamalı tanımlanan karakterleri tablo halinde basar
+%
+% Format:
+%   KİŞİLER
+%   ───────────────────────────────────────────
+%   MARIA          Leningrad Komsomol'ü Sekreteri
+%   MUSTAFA        Buralı, Eski-Devrimci
+%
+% Sadece \karakter[...][...]{...}{...} ile tanımlananlar eklenir.
+% \karakter{...}{...} (açıklamasız) tabloya girmez.
+%
+% =============================================================
+
+% Tablo parametreleri — kullanıcı override edebilir
+\newlength{\beforecasttitleskip} \setlength{\beforecasttitleskip}{0pt}
+\newlength{\aftercasttitleskip}  \setlength{\aftercasttitleskip}{1cm}
+\newlength{\castpageleftmargin}  \setlength{\castpageleftmargin}{1.5cm}
+\newlength{\castpagerightmargin} \setlength{\castpagerightmargin}{0pt}
+\newlength{\castnamewidth}       \setlength{\castnamewidth}{0.33\linewidth}
+
+% Liste seçenekleri
+\newcommand{\castlistoptions}{%
+    \itemsep=0pt%
+    \itemindent=0cm%
+    \topsep=0pt%
+    \parsep=10pt%
+    \listparindent=0cm%
+}
+
+% Kullanıcı komutu — istediği yere koyabilir, genellikle \maketitle sonrası
+\newcommand{\kisiler}{%
+    \iftiyatrodraft\@pauselinenumbers\fi%
+    \clearpage%
+    \thispagestyle{empty}%
+    \@tiyatro@castlist%
+    \iftiyatrodraft\@resumelinenumbers\fi%
+}
+
+% İç kişiler listesi komutu
+\newcommand{\@tiyatro@castlist}{%
+    % Başlık
+    \vspace*{\beforecasttitleskip}%
+    {\centering\casttitlefont\casttitlename\par}%
+    \par\nobreak\vskip\aftercasttitleskip%
+    % Karakter listesi
+    \begin{list}{}{%
+        \leftmargin=\castpageleftmargin%
+        \rightmargin=\castpagerightmargin%
+        \castlistoptions%
+    }%
+        \@tiyatro@recursecast%
+    \end{list}%
+}
+
+% Tüm karakterleri recursive olarak tablo satırlarına dök
+% casttemp sayacı ile castlistcounter'a kadar ilerler
+\newcommand{\@tiyatro@recursecast}{%
+    \ifnum\value{casttemp}<\value{castlistcounter}%
+        \stepcounter{casttemp}%
+        \item{%
+            \begin{tabular}{%
+                p{\castnamewidth}%
+                p{\dimexpr\linewidth-\castnamewidth-4\tabcolsep}%
+            }%
+                \@nameuse{persona@\Roman{casttemp}}\strut%
+                &%
+                \@nameuse{description@\Roman{casttemp}}\strut%
+            \end{tabular}%
+        }%
+        \@tiyatro@recursecast%
+    \fi%
+    \setcounter{casttemp}{0}%
+}
+
+
+% =============================================================
+% BÖLÜM 9: GRUP KARAKTER SİSTEMİ
+% =============================================================
+%
+% Birden fazla karakteri kişiler tablosunda tek satırda gruplamak için.
+% Büyük parantez } ile grup açıklaması sağda gösterilir.
+%
+% Kullanım:
+%   \begin{karaktergrubu}[Garsonlar]
+%     \gkarakter[Birinci Garson]{GARSON 1}{garsona}
+%     \gkarakter{GARSON 2}{garsonb}
+%   \end{karaktergrubu}
+%
+% Kişiler tablosunda:
+%   GARSON 1  }
+%   GARSON 2  } Garsonlar
+%
+% \gkarakter* → starred (kapakta gösterilir)
+%
+% =============================================================
+
+% Grup içi geçici sayaç
+\newcounter{grouptemp}
+
+% Grup kutusu — parantez çizimi için
+\newsavebox{\@tiy@groupbox}
+
+% \gkarakter komutu — sadece \karaktergrubu içinde kullanılır
+\NewDocumentCommand{\gkarakter}{s}{%
+    \IfBooleanTF{#1}%
+        {\@thischarstartrue}%
+        {\@thischarstarfalse}%
+    \@ifnextchar[%
+        {\@gkarakter@cast}%
+        {\@gkarakter@cast[]}%
+}
+\let\gcharacter\gkarakter
+
+\def\@gkarakter@cast[#1]#2#3{%
+    % Grup içi sayacı artır
+    \stepcounter{group@\Roman{castlistcounter}}%
+    \stepcounter{totalcharcounter}%
+    %
+    % Starred ise kapak listesine ekle
+    \if@thischarstar%
+        \ifx\@starrednamelist\empty
+            \gappto\@starrednamelist{#2}%
+        \else
+            \gappto\@starrednamelist{\\#2}%
+        \fi
+    \fi%
+    %
+    % Grup içi persona kaydı — tam ad varsa onu kullan
+    \if\relax\detokenize{#1}\relax%
+        \if@thischarstar%
+            \csgdef{gpersona@\Roman{castlistcounter}@\roman{group@\Roman{castlistcounter}}}{{\caststarfont#2}}%
+        \else%
+            \csgdef{gpersona@\Roman{castlistcounter}@\roman{group@\Roman{castlistcounter}}}{{\castfont#2}}%
+        \fi%
+    \else%
+        \if@thischarstar%
+            \csgdef{gpersona@\Roman{castlistcounter}@\roman{group@\Roman{castlistcounter}}}{{\caststarfont#1}}%
+        \else%
+            \csgdef{gpersona@\Roman{castlistcounter}@\roman{group@\Roman{castlistcounter}}}{{\castfont#1}}%
+        \fi%
+    \fi%
+    %
+    % Karakter makrolarını oluştur — grup flag'i ile \maxcharlength güncellenmez
+    \@tiy@groupchartrue%
+    \edef\@currentcharid{\Roman{totalcharcounter}}%
+    \expandafter\@persona@makemacros\expandafter{\@currentcharid}{#2}{#3}%
+    \@tiy@groupcharfalse%
+}
+
+% Grup içindeki karakterleri recursive olarak listele
+\newcommand{\@tiy@recursegroup}{%
+    \ifnum\value{grouptemp}<\value{group@\Roman{casttemp}}%
+        \stepcounter{grouptemp}%
+        \item\@nameuse{gpersona@\Roman{casttemp}@\roman{grouptemp}}\strut%
+        \@tiy@recursegroup%
+    \fi%
+    \setcounter{grouptemp}{0}%
+}
+
+% \karaktergrubu[açıklama]{içerik}
+% Örnek:
+%   \karaktergrubu[İki Garson]{
+%       \gkarakter[Birinci Garson]{GARSON 1}{garsona}
+%       \gkarakter{GARSON 2}{garsonb}
+%   }
+\newcommand{\karaktergrubu}[2][]{%
+    % Bu grup kişiler tablosunda tek satır sayılır
+    \stepcounter{castlistcounter}%
+    % Grup açıklamasını kaydet
+    \csgdef{description@\Roman{castlistcounter}}{#1}%
+    % Bu grup için iç sayaç oluştur
+    \expandafter\newcounter{group@\Roman{castlistcounter}}%
+    % Grup üyelerini işle (gkarakter komutları çalışır)
+    \edef\@tiy@thisgroup{\Roman{castlistcounter}}%
+    #2%
+    % persona@... makrosunu tanımla — \@tiyatro@recursecast çağırınca çalışır
+    \expandafter\csgdef\expandafter{persona@\@tiy@thisgroup}{%
+        \begin{lrbox}{\@tiy@groupbox}%
+            \begin{minipage}[c]{\castnamewidth}%
+                \raggedright%
+                \leftmargini=0pt%
+                \begin{list}{}{\castlistoptions}%
+                    \@tiy@recursegroup%
+                \end{list}%
+            \end{minipage}%
+        \end{lrbox}%
+        \parbox{\castnamewidth}{%
+            \hfuzz=\wd\@tiy@groupbox%
+            \usebox{\@tiy@groupbox}%
+            $\left.\rule{0pt}{\ht\@tiy@groupbox}\right\}$%
+        }%
+    }%
+}
+\let\chargroup\karaktergrubu
+
+
+% =============================================================
+% BÖLÜM 10: YARDIMCI KOMUTLAR
+% =============================================================
+
+% \phantomsection — hyperref yoksa boş bırak
+\providecommand\phantomsection{}
+
+% \@firstofone — token'ı değiştirmeden geçir
+\long\def\@firstofone#1{#1}
+
+% ── Font komutları — varsayılan değerler ─────────────────────
+% tiyatro-theme.sty bu değerleri override eder.
+% \providecommand kullanıldığı için theme yoksa bu değerler geçerli olur.
+\providecommand{\namefont}{\scshape}               % normal karakter adı
+\providecommand{\starfont}{\bf\scshape}            % starred karakter adı
+\providecommand{\actionfont}{\itshape}             % action/stage direction
+\providecommand{\castfont}{\scshape}               % kisiler tablosu normal
+\providecommand{\caststarfont}{\bf\scshape\large}  % kisiler tablosu starred
+\providecommand{\casttitlefont}{\scshape\Large}    % "KİŞİLER" başlığı
+\providecommand{\scenecastfont}{\scshape\small}    % sahne cast listesi
+\providecommand{\scenetitlefont}{\scshape\large}   % sahne başlığı
+\providecommand{\acttitlefont}{\scshape\Large}     % perde başlığı
+
+% ── Uzunluk komutları — varsayılan değerler ──────────────────
+% tiyatro-theme.sty \setlength ile override edebilir
+\newlength{\beforesceneskip} \setlength{\beforesceneskip}{0pt}
+\newlength{\aftersceneskip}  \setlength{\aftersceneskip}{\baselineskip}
+\newlength{\beforeactskip}   \setlength{\beforeactskip}{\baselineskip}
+\newlength{\afteractskip}    \setlength{\afteractskip}{\baselineskip}
+
+% ── Lokalizasyon metinleri — varsayılan Türkçe ───────────────
+% Kullanıcı veya theme override edebilir
+\providecommand{\casttitlename}{KİŞİLER}
+\providecommand{\scenetitlename}{Sahne}
+\providecommand{\acttitlename}{Perde}
+\providecommand{\curtainlocalizedtext}{Perde Sonu}
+\providecommand{\scriptendlocalizedtext}{Son}
