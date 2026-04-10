@@ -67,11 +67,11 @@
 
 % ── DRAFT MOD ────────────────────────────────────────────
 
-\AtBeginDocument{%
-  \IfFontExistsTF{Aptos}{\setmainfont{Aptos}}{%
-    \IfFontExistsTF{Calibri}{\setmainfont{Calibri}}{%
-      \IfFontExistsTF{TeX Gyre Heros}{\setmainfont{TeX Gyre Heros}}{}}}%
-}
+% \setmainfont preamble'da çağrılıyor — AtBeginDocument'a ertelenmez.
+% Böylece \karakter → \settowidth doğru fontle ölçer → \maxcharlength doğru.
+\IfFontExistsTF{Aptos}{\setmainfont{Aptos}}{%
+  \IfFontExistsTF{Calibri}{\setmainfont{Calibri}}{%
+    \IfFontExistsTF{TeX Gyre Heros}{\setmainfont{TeX Gyre Heros}}{}}}
 
 % 1.5 satır aralığı
 \onehalfspacing
@@ -81,9 +81,19 @@
 \setlength\linenumbersep{8pt}
 \renewcommand\linenumberfont{\normalfont\tiny\ttfamily}
 
-% Satir numarasi karakter isimlerinin solunda kalsin
-% maxcharlength preamble sonunda belli olur, linenumbersep ona gore ayarlanir
-\AtBeginDocument{\setlength\linenumbersep{\dimexpr\maxcharlength+8pt\relax}}
+% Satır numarası karakter isminin solunda.
+% Sol marjin = maxcharlength + 20pt (numara + boşluk) kadar gerekli.
+% Eğer mevcut sol marjin (left=3cm≈85pt) yetmiyorsa, textwidth'ten kırparak genişletiyoruz.
+\newlength{\@tiy@extramargin}
+\AtBeginDocument{%
+    \setlength\linenumbersep{\dimexpr\maxcharlength+8pt\relax}%
+    % Gereken sol marjin = maxcharlength + satır no genişliği(≈12pt) + boşluk(8pt)
+    \setlength{\@tiy@extramargin}{\dimexpr\maxcharlength+20pt-\oddsidemargin-1in\relax}%
+    \ifdim\@tiy@extramargin>0pt%
+        \addtolength{\oddsidemargin}{\@tiy@extramargin}%
+        \addtolength{\textwidth}{-\@tiy@extramargin}%
+    \fi%
+}
 
 % Satır numarasını geçici kapatmak için yardımcı komutlar
 \newcommand{\@pauselinenumbers}{\nolinenumbers}
@@ -93,10 +103,9 @@
 
 % ── FINAL MOD ────────────────────────────────────────────
 
-\AtBeginDocument{%
-  \IfFontExistsTF{Times New Roman}{\setmainfont{Times New Roman}}{%
-    \IfFontExistsTF{TeX Gyre Termes}{\setmainfont{TeX Gyre Termes}}{}}%
-}
+% \setmainfont preamble'da — \karakter ölçümleri doğru fontle yapılır.
+\IfFontExistsTF{Times New Roman}{\setmainfont{Times New Roman}}{%
+  \IfFontExistsTF{TeX Gyre Termes}{\setmainfont{TeX Gyre Termes}}{}}
 
 % Tek satır aralığı
 \singlespacing

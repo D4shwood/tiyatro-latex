@@ -520,6 +520,26 @@
 % \ali{\ic{güler} Hayır olmaz!}  →  Ali: (güler) Hayır olmaz!
 \newcommand{\ic}[1]{{\itshape(#1)}}
 
+% ── Aktif parantez — diyalog içi (yönerge) desteği ──────────
+% Diyalog içinde ham (parantez) → \ic{} gibi italik formatlar.
+% Sadece \catcode`\(=\active olan bağlamda (yani formatdialogue içinde) devreye girer.
+% Örnek: \ma (güler) Hayır olmaz!  →  Maria: (güler) Hayır olmaz!
+%
+% \@tiy@lpar / \@tiy@rpar: literal ( ve ) karakterleri, aktif catcode'dan önce kaydedilir.
+% Böylece \gdef( içindeki tanımda sonsuz özyinelemeden kaçınılır.
+\begingroup
+\catcode`\(=12\relax
+\catcode`\)=12\relax
+\gdef\@tiy@lpar{(}%
+\gdef\@tiy@rpar{)}%
+\endgroup
+\begingroup
+\catcode`\(=\active
+\catcode`\)=\active
+\gdef({\begingroup\actionfont\@tiy@lpar}%
+\gdef){\@tiy@rpar\endgroup}%
+\endgroup
+
 % ── Alt çizgi vurgu ──────────────────────────────────────────
 % _kelime_ → \underline{kelime}
 % Diyalog içinde: \ali{Bu çok _önemli_!}

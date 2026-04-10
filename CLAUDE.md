@@ -24,9 +24,12 @@ Derleme: `xelatex main.tex` (iki kez — sahne cast listeleri .aux'tan okunuyor)
 - **Sorun:** `\newfontfamily\@rufont` ikinci kez tanımlanınca hata
 - **Çözüm:** `\AtBeginDocument` içinde `\let\@rufont\relax` sonra `\newfontfamily`
 
-### 4. Satır numaraları karakter isimleriyle çakışma (ÇÖZÜLDÜ)
-- **Sorun:** Draft modda satır numaraları diyalog isimlerinin üstüne biniyordu
-- **Çözüm:** `\AtBeginDocument{\setlength\linenumbersep{\dimexpr\maxcharlength+12pt\relax}}` — linenumbersep dinamik olarak karakter adı genişliğine göre ayarlanıyor
+### 4. Satır numaraları karakter isimleriyle çakışma (ÇÖZÜLDÜ — kalıcı)
+- **Sorun:** Draft modda satır numaraları karakter isimlerinin üstüne biniyordu; uzun isimli oyunlarda (ör. "SPİKER yahut MİKAİL") sayfa dışına taşıyordu
+- **Kök neden:** `\setmainfont` `\AtBeginDocument`'a ertelenmişti → `\karakter` preamble'da `\settowidth` yaparken font henüz yok → `\maxcharlength` yanlış ölçülüyor → `\linenumbersep` hesabı hatalı; sol marjin yetmeyince numara sayfa dışına çıkıyor veya metinle çakışıyor
+- **Kalıcı çözüm (iki adım):**
+  1. **`\setmainfont` preamble'a taşındı** (`\AtBeginDocument` kaldırıldı): Font `\karakter` çağrısından önce set edilir, `\settowidth` doğru fontle ölçer, `\maxcharlength` doğru gelir. `\@rufont` (`\let\relax` hilesini kullanan) `\AtBeginDocument`'ta kalmaya devam eder.
+  2. **Dinamik marjin genişletme:** `\AtBeginDocument`'ta `\maxcharlength + 20pt > mevcut sol marjin` ise fark kadar `\oddsidemargin` büyütülür, `\textwidth` kısaltılır. Normal oyunlarda sıfır etki, uzun isimli oyunlarda otomatik uyum.
 
 ### 5. Türkçe İ/ı scshape sorunu (ÇÖZÜLDÜ)
 - **Sorun:** `\scshape` ile "ALİ" yerine "ALI" basılıyordu
