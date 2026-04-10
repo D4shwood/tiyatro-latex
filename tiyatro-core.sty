@@ -619,28 +619,39 @@
 }
 
 % Kullanıcı komutları — Türkçe ve İngilizce alias
-\NewDocumentCommand{\sahne}{O{}}{%
+%
+% \sahne[yer/zaman]          → Sahne 1 (otomatik numara)
+% \sahne[yer/zaman][1.1]     → Sahne 1.1 (manuel label, sayaç kendi yolunda devam eder)
+% \sahne[][2]                → Sahne 2 (yer/zaman yok, manuel numara)
+%
+% Manuel label sadece görsel — sayaç her zaman ilerler, cast sistemi etkilenmez.
+\NewDocumentCommand{\sahne}{O{} O{}}{%
     % Onceki sahnenin cast verisini aux'a yaz
     \@tiyatro@flushcasttoaux
     \stepcounter{scenecounter}%
-    % Yeni sahne etiketi
+    % Yeni sahne etiketi (cast sistemi için — her zaman gerçek sayaç)
     \edef\@tiy@currentlabel{\theact-\thescene}%
     \vskip 1.0\baselineskip%
-    \@tiyatro@scene{#1}%
+    % Gösterilecek numara: #2 boşsa otomatik, doluysa manuel label
+    \if\relax\detokenize{#2}\relax%
+        \@tiyatro@scene{#1}{\thescene}%
+    \else%
+        \@tiyatro@scene{#1}{#2}%
+    \fi%
     \parskip 0.5\baselineskip%
 }
 \let\scene\sahne
 
-% İç sahne komutu
-\newcommand{\@tiyatro@scene}[1]{%
+% İç sahne komutu — #1=yer/zaman, #2=gösterilecek numara
+\newcommand{\@tiyatro@scene}[2]{%
     % İçindekiler tablosuna ekle
     \if\relax\detokenize{#1}\relax%
-        \addcontentsline{toc}{section}{\scenetitlename\space\thescene}%
+        \addcontentsline{toc}{section}{\scenetitlename\space#2}%
     \else%
-        \addcontentsline{toc}{section}{\scenetitlename\space\thescene\sceneseparator#1}%
+        \addcontentsline{toc}{section}{\scenetitlename\space#2\sceneseparator#1}%
     \fi%
     % Sahne başlığını bas (bir önceki sahnenin cast bilgisiyle)
-    \@tiyatro@titlescene{#1}%
+    \@tiyatro@titlescene{#1}{#2}%
     % Cast flaglerini sıfırla (yeni sahne için temiz başlangıç)
     \@tiyatro@resetcastflags%
     % Cast listesini sıfırla
@@ -648,12 +659,12 @@
     \@atleastonecharbeforefalse%
 }
 
-% Sahne başlığını bas
-\newcommand{\@tiyatro@titlescene}[1]{%
+% Sahne başlığını bas — #1=yer/zaman, #2=numara label
+\newcommand{\@tiyatro@titlescene}[2]{%
     \vspace*{\beforesceneskip}%
     {%
         \centering%
-        {\scenetitlefont\scenetitlename\space\thescene%
+        {\scenetitlefont\scenetitlename\space#2%
         \if\relax\detokenize{#1}\relax\else\sceneseparator#1\fi}%
         \par\nobreak%
         % Cast listesini aux'tan oku (iki-pass)
