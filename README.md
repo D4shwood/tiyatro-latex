@@ -2,7 +2,13 @@
 
 A XeLaTeX document class for typesetting Turkish stage play scripts.
 
-Designed to keep the `.tex` source **readable by playwrights**, not just programmers — character dialogue looks like dialogue, not code.
+Designed to keep the `.tex` source **readable by playwrights**, not just programmers — character dialogue looks like dialogue, not code:
+
+```latex
+\mu Merhaba! Buralara hep gelir misiniz?
+\ma Selam. \ic{gülümser} Nasılsın?
+\mudo\mado Girerler.
+```
 
 > Built on top of [`theatre.cls`](https://github.com/DavideFauri/theatre) by David Fauri.
 
@@ -10,6 +16,7 @@ Designed to keep the `.tex` source **readable by playwrights**, not just program
 
 ## Features
 
+- **Clean syntax** — dialogue without curly braces, reads like a real script
 - **Persona system** — declare characters once, use short aliases everywhere
 - **Dialogue formatting** — character name in margin, dialogue text aligned
 - **Chained stage directions** — `\alido\aysedo\mustdo Girerler.` → *(Ali, Ayşe, Mustafa: Girerler.)*
@@ -51,8 +58,8 @@ Designed to keep the `.tex` source **readable by playwrights**, not just program
 
 \action{Işıklar yavaşça açılır.}
 
-\mu{Merhaba! Buralara hep gelir misiniz?}
-\ma{Selam. \ic{gülümser} Nasılsın?}
+\mu Merhaba! Buralara hep gelir misiniz?
+\ma Selam. \ic{gülümser} Nasılsın?
 
 \mudo\mado Girerler.
 
@@ -84,11 +91,17 @@ Each character gets:
 
 ### Dialogue
 
+Both syntaxes work — braces are optional:
+
 ```latex
-\mu{Merhaba!}                    % dialogue line
-\mu{\ma nerede?}                 % inline character reference → "Maria nerede?"
-\mu{Ama sen _orada_ duruyordun!} % _word_ for emphasis
-\mu{\ic{güler} Hayır olmaz!}     % \ic{} for inline action
+\mu Merhaba!                     % no braces needed
+\mu{Merhaba!}                    % braces also fine
+```
+
+```latex
+\mu \ma nerede?                  % inline character reference → "Maria nerede?"
+\mu Ama sen _orada_ duruyordun!  % _word_ for emphasis
+\mu \ic{güler} Hayır olmaz!      % \ic{} for inline action
 ```
 
 ### Stage Directions
