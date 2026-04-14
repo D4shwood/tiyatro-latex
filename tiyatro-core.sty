@@ -198,6 +198,12 @@
     \expandafter\@persona@makemacros\expandafter{\@currentcharid}{#3}{#4}%
 }
 
+% ── \gizlikarakter ───────────────────────────────────────────
+% Kisiler tablosunda GÖRÜNMEz ama diyalogda kullanılabilir.
+% HERKES, SEYIRCI, toplu eylem karakterleri için.
+% Kullanım: \gizlikarakter{HERKES}{hep}
+\newcommand{\gizlikarakter}[2]{\@persona@simple{#1}{#2}}
+
 % Açıklamasız tanımlama — kisiler tablosuna EKLENMEz
 % Sadece diyalog makroları oluşturulur.
 % Sahne içinde geçici karakter tanımlamak için kullanışlı.
